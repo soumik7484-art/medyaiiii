@@ -21,6 +21,11 @@ export const ImageAnalysis = IDL.Record({
   'observation' : IDL.Text,
   'disclaimer' : IDL.Text,
 });
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
 export const QueryType = IDL.Variant({
   'symptom' : IDL.Null,
   'prescription' : IDL.Null,
@@ -32,6 +37,7 @@ export const QueryLog = IDL.Record({
   'summary' : IDL.Text,
   'timestamp' : IDL.Int,
 });
+export const UserProfile = IDL.Record({ 'displayName' : IDL.Text });
 export const MedicalAdvice = IDL.Record({
   'generalAdvice' : IDL.Text,
   'possibleReasons' : IDL.Text,
@@ -40,16 +46,28 @@ export const MedicalAdvice = IDL.Record({
 });
 
 export const idlService = IDL.Service({
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'analyzePrescription' : IDL.Func(
       [IDL.Text],
       [PrescriptionAnalysis],
       ['query'],
     ),
   'analyzeSymptomImage' : IDL.Func([IDL.Text], [ImageAnalysis], ['query']),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'getAllQueries' : IDL.Func([], [IDL.Vec(QueryLog)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getMedicalAdvice' : IDL.Func([IDL.Text], [MedicalAdvice], ['query']),
   'getQuery' : IDL.Func([IDL.Nat], [QueryLog], ['query']),
   'getRecentQueries' : IDL.Func([], [IDL.Vec(QueryLog)], ['query']),
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
+      ['query'],
+    ),
+  'greet' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
 });
 
 export const idlInitArgs = [];
@@ -68,6 +86,11 @@ export const idlFactory = ({ IDL }) => {
     'observation' : IDL.Text,
     'disclaimer' : IDL.Text,
   });
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
   const QueryType = IDL.Variant({
     'symptom' : IDL.Null,
     'prescription' : IDL.Null,
@@ -79,6 +102,7 @@ export const idlFactory = ({ IDL }) => {
     'summary' : IDL.Text,
     'timestamp' : IDL.Int,
   });
+  const UserProfile = IDL.Record({ 'displayName' : IDL.Text });
   const MedicalAdvice = IDL.Record({
     'generalAdvice' : IDL.Text,
     'possibleReasons' : IDL.Text,
@@ -87,16 +111,28 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'analyzePrescription' : IDL.Func(
         [IDL.Text],
         [PrescriptionAnalysis],
         ['query'],
       ),
     'analyzeSymptomImage' : IDL.Func([IDL.Text], [ImageAnalysis], ['query']),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'getAllQueries' : IDL.Func([], [IDL.Vec(QueryLog)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getMedicalAdvice' : IDL.Func([IDL.Text], [MedicalAdvice], ['query']),
     'getQuery' : IDL.Func([IDL.Nat], [QueryLog], ['query']),
     'getRecentQueries' : IDL.Func([], [IDL.Vec(QueryLog)], ['query']),
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
+    'greet' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   });
 };
 

@@ -38,13 +38,25 @@ export interface QueryLog {
 export type QueryType = { 'symptom' : null } |
   { 'prescription' : null } |
   { 'advice' : null };
+export interface UserProfile { 'displayName' : string }
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
 export interface _SERVICE {
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'analyzePrescription' : ActorMethod<[string], PrescriptionAnalysis>,
   'analyzeSymptomImage' : ActorMethod<[string], ImageAnalysis>,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'getAllQueries' : ActorMethod<[], Array<QueryLog>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getMedicalAdvice' : ActorMethod<[string], MedicalAdvice>,
   'getQuery' : ActorMethod<[bigint], QueryLog>,
   'getRecentQueries' : ActorMethod<[], Array<QueryLog>>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'greet' : ActorMethod<[string], string>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -1,3 +1,6 @@
+import Map "mo:core/Map";
+import Principal "mo:core/Principal";
+
 import Text "mo:core/Text";
 import List "mo:core/List";
 import Time "mo:core/Time";
@@ -5,10 +8,53 @@ import Nat "mo:core/Nat";
 import Array "mo:core/Array";
 import Iter "mo:core/Iter";
 import Runtime "mo:core/Runtime";
+import AccessControl "authorization/access-control";
+import MixinAuthorization "authorization/MixinAuthorization";
 
-
+// Specify the data migration funtion in with-clause. In this case,
+// the data migration function will add the userProfiles profile tracking,
+// which will persist on subsequent upgrades.
 
 actor {
+  // set up authorization and authentication System
+  let accessControlState = AccessControl.initState();
+  include MixinAuthorization(accessControlState);
+
+  // User profile type
+  public type UserProfile = {
+    displayName : Text;
+  };
+
+  let userProfiles = Map.empty<Principal, UserProfile>();
+
+  // get the profile of the user making the request
+  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access profiles");
+    };
+    userProfiles.get(caller);
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile");
+    };
+    userProfiles.get(user);
+  };
+
+  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can save profiles");
+    };
+    userProfiles.add(caller, profile);
+  };
+
+  // simple greet function - accessible to all including guests
+  public query ({ caller }) func greet(name : Text) : async Text {
+    "Hello, " # name # "!";
+  };
+
+  // MedyAI medical assistant code
   type QueryType = { #prescription; #symptom; #advice };
 
   type QueryLog = {
@@ -20,7 +66,8 @@ actor {
 
   var nextId = 1;
 
-  let queries = List.empty<QueryLog>();
+  // Per-user query logs for privacy
+  let userQueries = Map.empty<Principal, List.List<QueryLog>>();
 
   type PrescriptionAnalysis = {
     medicineName : Text;
@@ -52,34 +99,66 @@ actor {
     Time.now();
   };
 
-  func logQuery(queryType : QueryType, summary : Text) {
+  func logQuery(caller : Principal, queryType : QueryType, summary : Text) {
     let queryLog = {
       id = nextId;
       queryType;
       timestamp = getCurrentTime();
       summary;
     };
-    queries.add(queryLog);
+    
+    let userQueryList = switch (userQueries.get(caller)) {
+      case (null) { List.empty<QueryLog>() };
+      case (?list) { list };
+    };
+    
+    userQueryList.add(queryLog);
+    userQueries.add(caller, userQueryList);
     nextId += 1;
   };
 
-  func getQueryById(id : Nat) : ?QueryLog {
-    queries.toArray().find(func(logEntry) { logEntry.id == id });
+  func getQueryById(caller : Principal, id : Nat) : ?QueryLog {
+    switch (userQueries.get(caller)) {
+      case (null) { null };
+      case (?list) {
+        list.toArray().find(func(logEntry) { logEntry.id == id });
+      };
+    };
   };
 
   public query ({ caller }) func getQuery(id : Nat) : async QueryLog {
-    switch (getQueryById(id)) {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access medical queries");
+    };
+    
+    switch (getQueryById(caller, id)) {
       case (null) { Runtime.trap("Query log not found") };
       case (?logEntry) { logEntry };
     };
   };
 
   public query ({ caller }) func getAllQueries() : async [QueryLog] {
-    queries.toArray();
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access medical queries");
+    };
+    
+    switch (userQueries.get(caller)) {
+      case (null) { [] };
+      case (?list) { list.toArray() };
+    };
   };
 
   public query ({ caller }) func getRecentQueries() : async [QueryLog] {
-    let sortedQueries = queries.toArray().sort(
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can access medical queries");
+    };
+    
+    let allQueries = switch (userQueries.get(caller)) {
+      case (null) { [] };
+      case (?list) { list.toArray() };
+    };
+    
+    let sortedQueries = allQueries.sort(
       func(a, b) {
         Nat.compare(b.id, a.id);
       }
@@ -102,6 +181,10 @@ actor {
   };
 
   public query ({ caller }) func analyzePrescription(prescriptionText : Text) : async PrescriptionAnalysis {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can analyze prescriptions");
+    };
+    
     let text = prescriptionText.toLower();
 
     let amoxicillinKeywords = ["amoxicillin"];
@@ -118,7 +201,7 @@ actor {
     let doxycyclineKeywords = ["doxycycline", "doxy"];
 
     if (containsKeyword(text, amoxicillinKeywords)) {
-      logQuery(#prescription, "Amoxicillin - 500mg, confident match");
+      logQuery(caller, #prescription, "Amoxicillin - 500mg, confident match");
       return {
         medicineName = "Amoxicillin";
         dosage = "500mg";
@@ -129,7 +212,7 @@ actor {
     };
 
     if (containsKeyword(text, ibuprofenKeywords)) {
-      logQuery(#prescription, "Ibuprofen - 400mg, confident match");
+      logQuery(caller, #prescription, "Ibuprofen - 400mg, confident match");
       return {
         medicineName = "Ibuprofen";
         dosage = "400mg";
@@ -140,7 +223,7 @@ actor {
     };
 
     if (containsKeyword(text, paracetamolKeywords)) {
-      logQuery(#prescription, "Paracetamol - 500mg, confident match");
+      logQuery(caller, #prescription, "Paracetamol - 500mg, confident match");
       return {
         medicineName = "Paracetamol (Acetaminophen)";
         dosage = "500mg";
@@ -151,7 +234,7 @@ actor {
     };
 
     if (containsKeyword(text, lipitorKeywords)) {
-      logQuery(#prescription, "Lipitor - 20mg, moderate confidence");
+      logQuery(caller, #prescription, "Lipitor - 20mg, moderate confidence");
       return {
         medicineName = "Lipitor (Atorvastatin)";
         dosage = "20mg";
@@ -162,7 +245,7 @@ actor {
     };
 
     if (containsKeyword(text, metforminKeywords)) {
-      logQuery(#prescription, "Metformin - 500mg, moderate confidence");
+      logQuery(caller, #prescription, "Metformin - 500mg, moderate confidence");
       return {
         medicineName = "Metformin (Glucophage)";
         dosage = "500mg";
@@ -173,7 +256,7 @@ actor {
     };
 
     if (containsKeyword(text, cetirizineKeywords)) {
-      logQuery(#prescription, "Cetirizine - 10mg, moderate confidence");
+      logQuery(caller, #prescription, "Cetirizine - 10mg, moderate confidence");
       return {
         medicineName = "Cetirizine (Zyrtec)";
         dosage = "10mg";
@@ -184,7 +267,7 @@ actor {
     };
 
     if (containsKeyword(text, omeprazoleKeywords)) {
-      logQuery(#prescription, "Omeprazole - 20mg, moderate confidence");
+      logQuery(caller, #prescription, "Omeprazole - 20mg, moderate confidence");
       return {
         medicineName = "Omeprazole (Prilosec)";
         dosage = "20mg";
@@ -195,7 +278,7 @@ actor {
     };
 
     if (containsKeyword(text, azithromycinKeywords)) {
-      logQuery(#prescription, "Azithromycin - 500mg, moderate confidence");
+      logQuery(caller, #prescription, "Azithromycin - 500mg, moderate confidence");
       return {
         medicineName = "Azithromycin";
         dosage = "500mg";
@@ -206,7 +289,7 @@ actor {
     };
 
     if (containsKeyword(text, pantoprazoleKeywords)) {
-      logQuery(#prescription, "Pantoprazole - 40mg, moderate confidence");
+      logQuery(caller, #prescription, "Pantoprazole - 40mg, moderate confidence");
       return {
         medicineName = "Pantoprazole (Protonix)";
         dosage = "40mg";
@@ -217,7 +300,7 @@ actor {
     };
 
     if (containsKeyword(text, aspirinKeywords)) {
-      logQuery(#prescription, "Aspirin - 81mg, moderate confidence");
+      logQuery(caller, #prescription, "Aspirin - 81mg, moderate confidence");
       return {
         medicineName = "Aspirin";
         dosage = "81mg";
@@ -228,7 +311,7 @@ actor {
     };
 
     if (containsKeyword(text, ciprofloxacinKeywords)) {
-      logQuery(#prescription, "Ciprofloxacin - 500mg, moderate confidence");
+      logQuery(caller, #prescription, "Ciprofloxacin - 500mg, moderate confidence");
       return {
         medicineName = "Ciprofloxacin (Cipro)";
         dosage = "500mg";
@@ -239,7 +322,7 @@ actor {
     };
 
     if (containsKeyword(text, doxycyclineKeywords)) {
-      logQuery(#prescription, "Doxycycline - 100mg, moderate confidence");
+      logQuery(caller, #prescription, "Doxycycline - 100mg, moderate confidence");
       return {
         medicineName = "Doxycycline (Doxy)";
         dosage = "100mg";
@@ -249,7 +332,7 @@ actor {
       };
     };
 
-    logQuery(#prescription, "Unidentified prescription, low confidence");
+    logQuery(caller, #prescription, "Unidentified prescription, low confidence");
     {
       medicineName = "Unable to confidently identify";
       dosage = "N/A";
@@ -260,6 +343,10 @@ actor {
   };
 
   public query ({ caller }) func analyzeSymptomImage(imageDescription : Text) : async ImageAnalysis {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can analyze symptoms");
+    };
+    
     let text = imageDescription.toLower();
 
     let scarKeywords = ["scar", "cicatrix"];
@@ -273,7 +360,7 @@ actor {
     let insectBiteKeywords = ["insect bite", "sting", "mosquito", "spider"];
 
     if (containsKeyword(text, scarKeywords)) {
-      logQuery(#symptom, "Scar tissue identified");
+      logQuery(caller, #symptom, "Scar tissue identified");
       return {
         observation = "Scar tissue identified.";
         possibleCause = "Previous injury or surgery.";
@@ -283,7 +370,7 @@ actor {
     };
 
     if (containsKeyword(text, woundKeywords)) {
-      logQuery(#symptom, "Open wound detected");
+      logQuery(caller, #symptom, "Open wound detected");
       return {
         observation = "Open wound detected.";
         possibleCause = "Cut, scrape, or laceration.";
@@ -293,7 +380,7 @@ actor {
     };
 
     if (containsKeyword(text, rashKeywords)) {
-      logQuery(#symptom, "Skin rash observed");
+      logQuery(caller, #symptom, "Skin rash observed");
       return {
         observation = "Skin rash observed.";
         possibleCause = "Allergic reaction, infection, or skin irritation.";
@@ -303,7 +390,7 @@ actor {
     };
 
     if (containsKeyword(text, bruiseKeywords)) {
-      logQuery(#symptom, "Bruise identified");
+      logQuery(caller, #symptom, "Bruise identified");
       return {
         observation = "Bruise identified.";
         possibleCause = "Trauma or impact injury.";
@@ -313,7 +400,7 @@ actor {
     };
 
     if (containsKeyword(text, burnKeywords)) {
-      logQuery(#symptom, "Burn injury detected");
+      logQuery(caller, #symptom, "Burn injury detected");
       return {
         observation = "Burn injury detected.";
         possibleCause = "Thermal, chemical, or electrical burn.";
@@ -323,7 +410,7 @@ actor {
     };
 
     if (containsKeyword(text, swellingKeywords)) {
-      logQuery(#symptom, "Swelling observed");
+      logQuery(caller, #symptom, "Swelling observed");
       return {
         observation = "Swelling observed.";
         possibleCause = "Injury, infection, or allergic reaction.";
@@ -333,7 +420,7 @@ actor {
     };
 
     if (containsKeyword(text, acneKeywords)) {
-      logQuery(#symptom, "Acne/pimples detected");
+      logQuery(caller, #symptom, "Acne/pimples detected");
       return {
         observation = "Acne/pimples detected.";
         possibleCause = "Clogged pores, hormonal changes, or bacterial infection.";
@@ -343,7 +430,7 @@ actor {
     };
 
     if (containsKeyword(text, blisterKeywords)) {
-      logQuery(#symptom, "Blister formed");
+      logQuery(caller, #symptom, "Blister formed");
       return {
         observation = "Blister formed.";
         possibleCause = "Friction, burn, or infection.";
@@ -353,7 +440,7 @@ actor {
     };
 
     if (containsKeyword(text, insectBiteKeywords)) {
-      logQuery(#symptom, "Insect bite/sting identified");
+      logQuery(caller, #symptom, "Insect bite/sting identified");
       return {
         observation = "Insect bite/sting identified.";
         possibleCause = "Mosquito, spider, bee, or other insect.";
@@ -362,7 +449,7 @@ actor {
       };
     };
 
-    logQuery(#symptom, "Unclear description, unable to determine condition");
+    logQuery(caller, #symptom, "Unclear description, unable to determine condition");
     {
       observation = "Insufficient description provided.";
       possibleCause = "Unable to determine specific condition.";
@@ -372,6 +459,10 @@ actor {
   };
 
   public query ({ caller }) func getMedicalAdvice(symptoms : Text) : async MedicalAdvice {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can get medical advice");
+    };
+    
     let text = symptoms.toLower();
 
     let headacheKeywords = ["headache", "migraine", "head pain"];
@@ -390,7 +481,7 @@ actor {
     let fatigueKeywords = ["fatigue", "tiredness", "weakness"];
 
     if (containsKeyword(text, headacheKeywords)) {
-      logQuery(#advice, "Headache advice provided");
+      logQuery(caller, #advice, "Headache advice provided");
       return {
         possibleReasons = "Tension, dehydration, sinus issues, migraines";
         generalAdvice = "Rest in a quiet, dark room, stay hydrated, and consider taking over-the-counter pain relievers if needed. Seek medical attention for severe or persistent headaches.";
@@ -404,7 +495,7 @@ actor {
     };
 
     if (containsKeyword(text, feverKeywords)) {
-      logQuery(#advice, "Fever advice provided");
+      logQuery(caller, #advice, "Fever advice provided");
       return {
         possibleReasons = "Infection, inflammation, heat exhaustion";
         generalAdvice = "Stay hydrated, rest, and monitor temperature regularly. Use fever-reducing medications if uncomfortable. Seek medical attention for persistent high fever, especially in children or elderly individuals.";
@@ -418,7 +509,7 @@ actor {
     };
 
     if (containsKeyword(text, coughKeywords)) {
-      logQuery(#advice, "Cough advice provided");
+      logQuery(caller, #advice, "Cough advice provided");
       return {
         possibleReasons = "Viral or bacterial infection, allergies, irritants";
         generalAdvice = "Stay hydrated, use cough syrup or lozenges for relief, and avoid smoking or exposure to irritants. Consult doctor if cough persists or worsens.";
@@ -432,7 +523,7 @@ actor {
     };
 
     if (containsKeyword(text, stomachKeywords)) {
-      logQuery(#advice, "Stomach pain advice provided");
+      logQuery(caller, #advice, "Stomach pain advice provided");
       return {
         possibleReasons = "Indigestion, viral infection, food poisoning";
         generalAdvice = "Avoid heavy meals, stay hydrated, and monitor for dehydration. Seek medical attention for persistent vomiting, diarrhea, or severe abdominal pain.";
@@ -446,7 +537,7 @@ actor {
     };
 
     if (containsKeyword(text, backPainKeywords)) {
-      logQuery(#advice, "Back pain advice provided");
+      logQuery(caller, #advice, "Back pain advice provided");
       return {
         possibleReasons = "Muscle strain, poor posture, injury";
         generalAdvice = "Apply heat or cold packs, avoid heavy lifting, and practice stretching exercises. Consult doctor for persistent or severe back pain.";
@@ -460,7 +551,7 @@ actor {
     };
 
     if (containsKeyword(text, nauseaKeywords)) {
-      logQuery(#advice, "Nausea/vomiting advice provided");
+      logQuery(caller, #advice, "Nausea/vomiting advice provided");
       return {
         possibleReasons = "Food poisoning, viral infection, motion sickness";
         generalAdvice = "Avoid solid foods, sip clear fluids frequently, and rest. Seek medical attention for persistent vomiting or dehydration.";
@@ -470,7 +561,7 @@ actor {
     };
 
     if (containsKeyword(text, dizzinessKeywords)) {
-      logQuery(#advice, "Dizziness/vertigo advice provided");
+      logQuery(caller, #advice, "Dizziness/vertigo advice provided");
       return {
         possibleReasons = "Dehydration, low blood pressure, inner ear issues";
         generalAdvice = "Sit or lie down immediately, drink fluids, and avoid sudden movements. Seek medical attention for persistent or severe dizziness.";
@@ -480,7 +571,7 @@ actor {
     };
 
     if (containsKeyword(text, soreThroatKeywords)) {
-      logQuery(#advice, "Sore throat advice provided");
+      logQuery(caller, #advice, "Sore throat advice provided");
       return {
         possibleReasons = "Viral or bacterial infection, allergies, irritants";
         generalAdvice = "Drink warm liquids, use throat lozenges, and avoid irritants. Consult doctor if sore throat persists or worsens.";
@@ -490,7 +581,7 @@ actor {
     };
 
     if (containsKeyword(text, coldFluKeywords)) {
-      logQuery(#advice, "Cold/flu advice provided");
+      logQuery(caller, #advice, "Cold/flu advice provided");
       return {
         possibleReasons = "Viral infection, seasonal allergies";
         generalAdvice = "Rest, stay hydrated, and monitor symptoms closely. Use over-the-counter medications if needed. Seek medical attention for persistent or severe symptoms.";
@@ -504,7 +595,7 @@ actor {
     };
 
     if (containsKeyword(text, chestPainKeywords)) {
-      logQuery(#advice, "Chest pain advice provided");
+      logQuery(caller, #advice, "Chest pain advice provided");
       return {
         possibleReasons = "Muscle strain, heart issues, respiratory infection";
         generalAdvice = "Chest pain can be serious. Seek immediate medical attention if pain is severe, persistent, or accompanied by shortness of breath, sweating, or nausea.";
@@ -514,7 +605,7 @@ actor {
     };
 
     if (containsKeyword(text, itchingKeywords)) {
-      logQuery(#advice, "Itching/skin irritation advice provided");
+      logQuery(caller, #advice, "Itching/skin irritation advice provided");
       return {
         possibleReasons = "Allergic reaction, dry skin, insect bites";
         generalAdvice = "Keep affected area clean and dry, avoid scratching, and use anti-itch creams. Seek medical attention for persistent or severe symptoms.";
@@ -524,7 +615,7 @@ actor {
     };
 
     if (containsKeyword(text, eyePainKeywords)) {
-      logQuery(#advice, "Eye pain/redness advice provided");
+      logQuery(caller, #advice, "Eye pain/redness advice provided");
       return {
         possibleReasons = "Allergies, infection, eye strain";
         generalAdvice = "Avoid rubbing eyes, use anti-inflammatory eye drops, and rest eyes frequently. Seek medical attention for persistent or severe pain.";
@@ -534,7 +625,7 @@ actor {
     };
 
     if (containsKeyword(text, jointPainKeywords)) {
-      logQuery(#advice, "Joint pain/arthritis advice provided");
+      logQuery(caller, #advice, "Joint pain/arthritis advice provided");
       return {
         possibleReasons = "Arthritis, injury, overuse";
         generalAdvice = "Apply heat or cold packs, rest affected joints, and avoid strenuous activity. Consult doctor for persistent or severe joint pain.";
@@ -548,7 +639,7 @@ actor {
     };
 
     if (containsKeyword(text, fatigueKeywords)) {
-      logQuery(#advice, "Fatigue/tiredness/weakness advice provided");
+      logQuery(caller, #advice, "Fatigue/tiredness/weakness advice provided");
       return {
         possibleReasons = "Lack of sleep, dehydration, infection, stress";
         generalAdvice = "Get plenty of rest, stay hydrated, and eat nutritious meals. Consult doctor for persistent or severe fatigue.";
@@ -561,7 +652,7 @@ actor {
       };
     };
 
-    logQuery(#advice, "Generic advice for unspecified symptoms");
+    logQuery(caller, #advice, "Generic advice for unspecified symptoms");
     {
       possibleReasons = "Unable to determine specific condition";
       generalAdvice = "Monitor symptoms closely and seek medical attention if condition worsens.";

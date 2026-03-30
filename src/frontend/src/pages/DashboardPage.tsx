@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import {
-  Activity,
+  FileImage,
   Heart,
   LogOut,
-  MessageSquare,
-  Pill,
+  MessageCircle,
+  ScanEye,
   User,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -27,25 +27,26 @@ const tabs: {
   {
     id: "prescription",
     label: "Prescription Reader",
-    shortLabel: "Prescription",
-    icon: <Pill className="w-4 h-4" />,
+    shortLabel: "Rx",
+    icon: <FileImage className="w-4 h-4" />,
     description:
-      "Upload a handwritten prescription image and get structured medicine details.",
+      "Upload a photo of a handwritten prescription for AI-powered medicine identification.",
   },
   {
     id: "symptom",
     label: "Symptom Analyzer",
-    shortLabel: "Symptoms",
-    icon: <Activity className="w-4 h-4" />,
+    shortLabel: "Scan",
+    icon: <ScanEye className="w-4 h-4" />,
     description:
-      "Upload an image of a scar or symptom for AI-powered observation.",
+      "Upload an image of a scar, wound, or visible condition for AI visual analysis.",
   },
   {
     id: "advice",
     label: "Medical Advice",
     shortLabel: "Advice",
-    icon: <MessageSquare className="w-4 h-4" />,
-    description: "Describe your symptoms and receive general health guidance.",
+    icon: <MessageCircle className="w-4 h-4" />,
+    description:
+      "Describe your symptoms and get safe, general health advice instantly.",
   },
 ];
 
@@ -121,15 +122,15 @@ export default function DashboardPage() {
             Welcome back, {userName}!
           </h1>
           <p className="text-muted-foreground text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-            Upload prescriptions, analyze symptoms, or ask health questions —
-            get instant AI-powered insights.
+            Analyze prescriptions, scan symptoms, or ask your AI health
+            assistant — powered by AI.
           </p>
         </div>
       </section>
 
       {/* Main content */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8">
-        {/* Desktop 3-col layout */}
+        {/* Desktop tab layout */}
         <div className="hidden lg:block">
           <div className="flex border-b border-border mb-6">
             {tabs.map((tab) => (

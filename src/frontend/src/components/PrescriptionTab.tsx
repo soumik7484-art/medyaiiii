@@ -1,102 +1,108 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, CheckCircle, Loader2, Pill } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAnalyzePrescription } from "../hooks/useQueries";
-import { UploadZone } from "./UploadZone";
+import { ImageUploadZone } from "./ImageUploadZone";
 import { VoiceButton } from "./VoiceButton";
 
 export function PrescriptionTab() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [medicineHint, setMedicineHint] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
-
+  const urlRef = useRef<string | null>(null);
   const mutation = useAnalyzePrescription();
 
-  const handleFileSelected = useCallback((f: File) => {
-    setFile(f);
-    setError("");
-    const url = URL.createObjectURL(f);
-    setPreview(url);
+  useEffect(() => {
+    return () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    };
   }, []);
 
-  const handleClear = () => {
-    setFile(null);
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    setMedicineHint("");
-    mutation.reset();
+  function handleFileSelected(selectedFile: File) {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    const url = URL.createObjectURL(selectedFile);
+    urlRef.current = url;
+    setFile(selectedFile);
+    setPreviewUrl(url);
     setError("");
-  };
+    mutation.reset();
+  }
 
-  const handleAnalyze = async () => {
+  function handleRemove() {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+    setFile(null);
+    setPreviewUrl(null);
+    mutation.reset();
+  }
+
+  function handleAnalyze() {
     if (!file) {
-      setError("Please upload an image of the prescription first.");
+      setError("Please upload a prescription image first.");
       return;
     }
     setError("");
-    const inputText = medicineHint.trim()
-      ? `${medicineHint.trim()} (file: ${file.name})`
-      : file.name;
-    mutation.mutate(inputText);
-  };
+    const context = notes.trim() ? `${file.name}: ${notes.trim()}` : file.name;
+    mutation.mutate(context);
+  }
 
   const result = mutation.data;
 
-  const confidenceBadge = (level: string) => {
+  function confidenceBadge(level: string) {
     const l = level.toLowerCase();
     if (l === "high")
       return (
-        <Badge className="bg-success text-success-foreground">
-          High Confidence
+        <Badge className="bg-success text-success-foreground text-xs">
+          ✓ High Confidence
         </Badge>
       );
     if (l === "medium")
       return (
-        <Badge className="bg-warning text-warning-foreground">
-          Medium Confidence
+        <Badge className="bg-warning text-warning-foreground text-xs">
+          ⚠ Medium Confidence
         </Badge>
       );
-    return <Badge variant="destructive">Low Confidence</Badge>;
-  };
+    return (
+      <Badge variant="destructive" className="text-xs">
+        ✗ Low Confidence
+      </Badge>
+    );
+  }
 
   const voiceText = result
-    ? `Prescription Analysis. Medicine: ${result.medicineName}. Dosage: ${result.dosage}. Frequency: ${result.frequency}. Confidence: ${result.confidenceLevel}. ${result.notes}`
+    ? `Prescription Analysis. Medicine: ${result.medicineName}. Dosage: ${result.dosage}. Frequency: ${result.frequency}. Confidence: ${result.confidenceLevel}. Notes: ${result.notes}`
     : "";
 
   return (
     <div className="space-y-5">
-      <UploadZone
+      <ImageUploadZone
         onFileSelected={handleFileSelected}
-        preview={preview}
-        onClear={handleClear}
+        onRemove={handleRemove}
+        previewUrl={previewUrl}
+        accept="image/*"
+        label="Upload prescription image"
       />
 
-      {file && (
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="medicine-hint"
-            className="text-sm font-medium text-foreground"
-          >
-            Type the medicine name if visible
-          </Label>
-          <Input
-            id="medicine-hint"
-            data-ocid="prescription.input"
-            placeholder="e.g. Amoxicillin, Paracetamol, Metformin"
-            value={medicineHint}
-            onChange={(e) => setMedicineHint(e.target.value)}
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground">
-            Optional — helps the AI recognise the medicine from the prescription
-            image.
-          </p>
-        </div>
-      )}
+      <div className="space-y-1.5">
+        <label
+          className="text-sm font-medium text-foreground"
+          htmlFor="rx-notes"
+        >
+          Additional notes{" "}
+          <span className="text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <Textarea
+          id="rx-notes"
+          data-ocid="prescription.textarea"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. Patient name, date, or any visible text on the prescription..."
+          className="min-h-[80px] resize-none text-sm"
+        />
+      </div>
 
       {error && (
         <div
@@ -117,7 +123,7 @@ export function PrescriptionTab() {
         {mutation.isPending ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
-            Analyzing prescription...
+            Reading prescription...
           </>
         ) : (
           <>
@@ -129,10 +135,9 @@ export function PrescriptionTab() {
 
       {mutation.isPending && (
         <div data-ocid="prescription.loading_state" className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Processing image...</span>
-            <span className="animate-pulse-ring">Please wait</span>
-          </div>
+          <p className="text-xs text-muted-foreground text-center animate-pulse-ring">
+            Reading handwriting and identifying medicines...
+          </p>
           <div className="h-1.5 bg-accent rounded-full overflow-hidden">
             <div className="h-full bg-primary rounded-full animate-progress" />
           </div>
@@ -155,17 +160,16 @@ export function PrescriptionTab() {
           className="animate-fade-slide space-y-4"
         >
           <div className="bg-card border border-border rounded-xl p-5 space-y-4 card-shadow">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-success" />
                 <h3 className="font-semibold text-foreground">
-                  Analysis Result
+                  Prescription Analysis
                 </h3>
               </div>
               {confidenceBadge(result.confidenceLevel)}
             </div>
-
-            <div className="grid gap-3">
+            <div className="grid gap-2.5">
               <ResultRow
                 icon={<Pill className="w-4 h-4" />}
                 label="Medicine Name"
@@ -183,9 +187,7 @@ export function PrescriptionTab() {
               )}
             </div>
           </div>
-
           <DisclaimerBox text="Please verify this with a pharmacist or doctor before taking any medicine." />
-
           <VoiceButton text={voiceText} />
         </div>
       )}
@@ -197,20 +199,26 @@ function ResultRow({
   icon,
   label,
   value,
-}: { icon?: React.ReactNode; label: string; value: string }) {
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  value: string;
+}) {
   const isUnclear =
     value.toLowerCase().includes("unable") ||
     value.toLowerCase().includes("unclear");
   return (
     <div className="flex items-start justify-between gap-3 bg-accent/30 rounded-lg px-4 py-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         {icon && <span className="text-primary">{icon}</span>}
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           {label}
         </span>
       </div>
       <span
-        className={`text-sm font-medium text-right ${isUnclear ? "text-muted-foreground italic" : "text-foreground"}`}
+        className={`text-sm font-medium text-right leading-relaxed ${
+          isUnclear ? "text-muted-foreground italic" : "text-foreground"
+        }`}
       >
         {value}
       </span>
@@ -218,13 +226,11 @@ function ResultRow({
   );
 }
 
-function DisclaimerBox({ text }: { text: string }) {
+export function DisclaimerBox({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-3 bg-warning/10 border border-warning/30 rounded-xl px-4 py-3">
+    <div className="flex items-start gap-3 bg-warning/10 border border-warning/30 rounded-xl px-4 py-3.5">
       <AlertCircle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
       <p className="text-xs text-foreground/80 leading-relaxed">{text}</p>
     </div>
   );
 }
-
-export { DisclaimerBox };

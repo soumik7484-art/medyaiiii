@@ -1,86 +1,92 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Activity, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAnalyzeSymptomImage } from "../hooks/useQueries";
+import { ImageUploadZone } from "./ImageUploadZone";
 import { DisclaimerBox } from "./PrescriptionTab";
-import { UploadZone } from "./UploadZone";
 import { VoiceButton } from "./VoiceButton";
 
 export function SymptomTab() {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
-
+  const urlRef = useRef<string | null>(null);
   const mutation = useAnalyzeSymptomImage();
 
-  const handleFileSelected = useCallback((f: File) => {
-    setFile(f);
-    setError("");
-    const url = URL.createObjectURL(f);
-    setPreview(url);
+  useEffect(() => {
+    return () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    };
   }, []);
 
-  const handleClear = () => {
-    setFile(null);
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    setDescription("");
+  function handleFileSelected(selectedFile: File) {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    const url = URL.createObjectURL(selectedFile);
+    urlRef.current = url;
+    setFile(selectedFile);
+    setPreviewUrl(url);
+    setError("");
     mutation.reset();
-    setError("");
-  };
+  }
 
-  const handleAnalyze = async () => {
+  function handleRemove() {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+    setFile(null);
+    setPreviewUrl(null);
+    mutation.reset();
+  }
+
+  function handleAnalyze() {
     if (!file) {
-      setError("Please upload an image to analyze.");
-      return;
-    }
-    if (!description.trim()) {
-      setError("Please describe what you see in the image.");
+      setError("Please upload an image first.");
       return;
     }
     setError("");
-    mutation.mutate(description.trim());
-  };
+    const context = description.trim()
+      ? `${file.name}: ${description.trim()}`
+      : file.name;
+    mutation.mutate(context);
+  }
 
   const result = mutation.data;
 
   const voiceText = result
-    ? `Image Analysis. Observation: ${result.observation}. Possible Cause: ${result.possibleCause}. What to Do: ${result.whatToDo}. ${result.disclaimer}`
+    ? `Symptom Analysis. Observation: ${result.observation}. Possible Cause: ${result.possibleCause}. What to Do: ${result.whatToDo}. ${result.disclaimer}`
     : "";
 
   return (
     <div className="space-y-5">
-      <UploadZone
+      <ImageUploadZone
         onFileSelected={handleFileSelected}
-        preview={preview}
-        onClear={handleClear}
+        onRemove={handleRemove}
+        previewUrl={previewUrl}
+        accept="image/*"
+        label="Upload symptom / scar image"
       />
 
-      {file && (
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="symptom-description"
-            className="text-sm font-medium text-foreground"
-          >
-            Describe what you see
-          </Label>
-          <Input
-            id="symptom-description"
-            data-ocid="symptom.input"
-            placeholder="e.g. rash on arm, wound on hand, bruise on leg"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground">
-            A brief description helps the AI give you a more accurate and
-            relevant response.
-          </p>
-        </div>
-      )}
+      <div className="space-y-1.5">
+        <label
+          className="text-sm font-medium text-foreground"
+          htmlFor="symptom-desc"
+        >
+          Describe what you see{" "}
+          <span className="text-muted-foreground font-normal">(optional)</span>
+        </label>
+        <Textarea
+          id="symptom-desc"
+          data-ocid="symptom.textarea"
+          value={description}
+          onChange={(e) => {
+            setDescription(e.target.value);
+            setError("");
+          }}
+          placeholder="e.g. red rash on arm, blisters, itching..."
+          className="min-h-[80px] resize-none text-sm"
+        />
+      </div>
 
       {error && (
         <div
@@ -106,17 +112,16 @@ export function SymptomTab() {
         ) : (
           <>
             <Activity className="w-4 h-4" />
-            Analyze Image
+            Analyze Symptom
           </>
         )}
       </Button>
 
       {mutation.isPending && (
         <div data-ocid="symptom.loading_state" className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Running visual analysis...</span>
-            <span className="animate-pulse-ring">Processing</span>
-          </div>
+          <p className="text-xs text-muted-foreground text-center animate-pulse-ring">
+            Scanning image for visible conditions...
+          </p>
           <div className="h-1.5 bg-accent rounded-full overflow-hidden">
             <div className="h-full bg-primary rounded-full animate-progress" />
           </div>
@@ -138,25 +143,28 @@ export function SymptomTab() {
           data-ocid="symptom.success_state"
           className="animate-fade-slide space-y-4"
         >
-          <div className="bg-card border border-border rounded-xl p-5 space-y-4 card-shadow">
+          <div className="bg-card border border-border rounded-xl p-5 space-y-3 card-shadow">
             <div className="flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-success" />
               <h3 className="font-semibold text-foreground">Analysis Result</h3>
             </div>
-
             <AnalysisSection
-              label="🔍 Observation"
+              label="Observation"
               value={result.observation}
+              variant="blue"
             />
             <AnalysisSection
-              label="💡 Possible Cause"
+              label="Possible Cause"
               value={result.possibleCause}
+              variant="amber"
             />
-            <AnalysisSection label="✅ What to Do" value={result.whatToDo} />
+            <AnalysisSection
+              label="What to Do"
+              value={result.whatToDo}
+              variant="green"
+            />
           </div>
-
           <DisclaimerBox text="This is not a medical diagnosis. Please consult a doctor." />
-
           <VoiceButton text={voiceText} />
         </div>
       )}
@@ -164,12 +172,23 @@ export function SymptomTab() {
   );
 }
 
-function AnalysisSection({ label, value }: { label: string; value: string }) {
+function AnalysisSection({
+  label,
+  value,
+  variant,
+}: {
+  label: string;
+  value: string;
+  variant: "blue" | "amber" | "green";
+}) {
+  const styles = {
+    blue: "bg-primary/8 border border-primary/20 text-primary",
+    amber: "bg-warning/8 border border-warning/20 text-warning",
+    green: "bg-success/8 border border-success/20 text-success",
+  };
   return (
-    <div className="bg-accent/30 rounded-lg px-4 py-3 space-y-1">
-      <p className="text-xs font-semibold text-primary uppercase tracking-wide">
-        {label}
-      </p>
+    <div className={`rounded-lg px-4 py-3 space-y-1.5 ${styles[variant]}`}>
+      <p className="text-xs font-bold uppercase tracking-wide">{label}</p>
       <p className="text-sm text-foreground leading-relaxed">{value}</p>
     </div>
   );

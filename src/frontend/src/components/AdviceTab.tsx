@@ -50,7 +50,7 @@ export function AdviceTab() {
             setInput(e.target.value);
             setError("");
           }}
-          placeholder="Describe your symptoms, e.g. I have a headache and fever..."
+          placeholder="e.g. I have headache and fever, What to do for a small burn?"
           className="min-h-[120px] resize-none bg-card border-border focus:border-primary transition-colors text-sm"
         />
       </div>
@@ -122,7 +122,7 @@ export function AdviceTab() {
               content={result.possibleReasons}
             />
             <AdviceSection
-              label="💊 General Advice"
+              label="💡 General Advice"
               content={result.generalAdvice}
             />
             <div className="bg-accent/30 rounded-lg px-4 py-3 space-y-2">
@@ -143,7 +143,7 @@ export function AdviceTab() {
             </div>
           </div>
 
-          <DisclaimerBox text="This is general advice, not a medical diagnosis." />
+          <DisclaimerBox text="This is general advice, not a medical diagnosis. Always consult a qualified doctor for proper diagnosis and treatment." />
 
           <VoiceButton text={voiceText} />
         </div>
@@ -152,7 +152,13 @@ export function AdviceTab() {
   );
 }
 
-function AdviceSection({ label, content }: { label: string; content: string }) {
+function AdviceSection({
+  label,
+  content,
+}: {
+  label: string;
+  content: string;
+}) {
   return (
     <div className="bg-accent/30 rounded-lg px-4 py-3 space-y-1">
       <p className="text-xs font-semibold text-primary uppercase tracking-wide">
